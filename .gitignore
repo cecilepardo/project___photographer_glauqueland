@@ -1,0 +1,15 @@
+# Fichiers à ignorer pour le répertoire et la sauvegarde distants
+
+# Fichiers système
+.DS_Store
+Thumbs.db
+
+# Editeurs / IDE
+.vscode/
+.idea/
+
+# Fichiers temporaires ou logs
+*.log
+
+# Fichiers de travail
+web/

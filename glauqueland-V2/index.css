@@ -1,0 +1,75 @@
+/* ==========================================================================
+   STYLES SPECIFIQUES - INDEX 1 (PAGE D'ACCUEIL PORTAIL)
+   ========================================================================== */
+
+/* Alignement centré de tout le contenu sur l'écran */
+.entry-container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+}
+
+/* Bloc contenant le texte d'introduction */
+.intro-card {
+  max-width: 800px;
+  text-align: justify;
+  margin-bottom: 2rem;
+  font-size: 0.95rem;
+  color: #dddddd;
+}
+
+/* Espace sous chaque paragraphe du texte d'accueil */
+.intro-card p {
+  margin-bottom: 1rem;
+}
+
+/* Style applique au texte de mise en garde */
+.warning-text {
+  color: var(--text-muted);
+}
+
+/* Style de l'invitation a cliquer pour entrer */
+.call-to-action {
+  text-align: center;
+  font-weight: bold;
+  color: var(--accent-color);
+}
+
+/* Conteneur cliquable regroupant l'image principale et le bouton d'entree */
+.entry-link {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-decoration: none;
+  gap: 1.5rem;
+  transition: opacity 0.2s ease;
+}
+
+/* Effet visuel au survol du lien d'entree */
+.entry-link:hover {
+  opacity: 0.9;
+}
+
+/* Encadrement de la grande image d'illustration */
+.hero-figure {
+  margin: 0;
+  max-width: 1000px;
+  width: 100%;
+}
+
+/* Rendre la grande image adaptative sur les petits écrans */
+.hero-image {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 4px;
+}
+
+/* Dimensions de l'image bouton d'entrée */
+.enter-button-img {
+  height: auto;
+  max-width: 224px;
+}

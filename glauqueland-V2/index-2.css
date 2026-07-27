@@ -1,0 +1,39 @@
+/* ==========================================================================
+   STYLES SPECIFIQUES - INDEX 2 (CARTE INTERACTIVE)
+   ========================================================================== */
+
+/* Conteneur principal centré */
+.map-container {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 1rem;
+}
+
+/* Encadrement de l'image de la carte */
+.map-wrapper {
+  max-width: 1200px;
+  width: 100%;
+}
+
+/* Image principale de la carte adaptative */
+.map-image {
+  width: 100%;
+  height: auto;
+  display: block;
+  border: 0;
+}
+
+/* Classe utilitaire pour masquer du contenu visuellement tout en le laissant accessible aux lecteurs d'ecran */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

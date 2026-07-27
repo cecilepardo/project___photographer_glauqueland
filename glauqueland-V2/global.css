@@ -1,0 +1,44 @@
+/* ==========================================================================
+   STYLES GLOBAUX DU SITE
+   ========================================================================== */
+
+/* Variables réutilisables d'apres le code d'origine */
+:root {
+  /* Couleurs originales */
+  --bg-color: #000000;
+  --text-color: #ffffff;
+  --text-muted: #666666;
+  --link-color: #6699ff;
+
+  /* Police de caracteres originale */
+  --font-main: Arial, Helvetica, sans-serif;
+}
+
+/* Calcul adaptatif des dimensions d'elements */
+*, 
+*::before, 
+*::after {
+  box-sizing: border-box;
+}
+
+/* Styles du corps de page d'origine */
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  font-family: var(--font-main);
+}
+
+/* Styles des liens originaux (:link, :visited, :active) */
+a, 
+a:visited, 
+a:active {
+  color: var(--link-color);
+}
+
+/* Accessibilite : contour visible pour la navigation au clavier */
+a:focus-visible {
+  outline: 2px solid var(--link-color);
+  outline-offset: 4px;
+}

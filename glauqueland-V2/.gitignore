@@ -1,0 +1,10 @@
+# Dépendances Node.js
+node_modules/
+
+# Journaux d'erreurs et de logs
+*.log
+npm-debug.log*
+
+# Fichiers système (Mac / Windows)
+.DS_Store
+Thumbs.db

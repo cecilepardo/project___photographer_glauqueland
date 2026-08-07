@@ -3,24 +3,30 @@ const path = require("path");
 const glob = require("fast-glob");
 const cheerio = require("cheerio");
 
-// Configuration des dossiers sources et de destination
 const INPUT_DIR = __dirname;
-const OUTPUT_DIR = path.join(__dirname, "dist"); // Les fichiers nettoyés iront dans "dist/"
 
 /**
- * Nettoie une chaîne de caractères (supprime les espaces multiples et les sauts de ligne inutiles)
+ * 1. Lit le fichier d'origine ISO-8859-1 / Windows-1252
+ * Cheerio convertira naturellement les entités (&eacute;) et le Latin-1 en UTF-8 propre.
+ */
+async function readHtmlFile(filePath) {
+  const buffer = await fs.readFile(filePath);
+  const decoder = new TextDecoder("windows-1252");
+  return decoder.decode(buffer);
+}
+
+/**
+ * Nettoie le texte sans altérer son contenu.
  */
 function cleanText(text) {
   return text ? text.replace(/\s+/g, " ").trim() : "";
 }
 
 /**
- * Extraite les métadonnées SEO et OpenGraph du document HTML
+ * Extrait les métadonnées de la page d'origine
  */
 function extractMetadata($) {
   const pageTitle = cleanText($("title").text()) || "Glauque Land";
-
-  // Déduire le titre du lieu (en retirant le préfixe "Glauque Land > ")
   const locationTitle = pageTitle
     .replace(/^Glauque\s+Land\s*>&nbsp;|\s*>&nbsp;|\s*>\s*/i, "")
     .trim();
@@ -29,10 +35,10 @@ function extractMetadata($) {
     pageTitle,
     locationTitle,
     metaDescription:
-      $('meta[name="description"]').attr("content") ||
+      cleanText($('meta[name="Description"], meta[name="description"]').attr("content")) ||
       "Urbex : Glauque-Land - Lieux abandonnés en France et Europe",
     metaKeywords:
-      $('meta[name="keywords"]').attr("content") ||
+      cleanText($('meta[name="Keywords"], meta[name="keywords"]').attr("content")) ||
       "urbex, exploration urbaine",
     ogImage: $('meta[property="og:image"]').attr("content") || "",
     ogUrl: $('meta[property="og:url"]').attr("content") || "",
@@ -40,75 +46,95 @@ function extractMetadata($) {
 }
 
 /**
- * Cherche et extrait le bloc d'avertissement de confidentialité (souvent identifié par "Important :")
+ * 2. Parcours séquentiel exact de la structure pour alterner texte et galeries
  */
-function extractWarningText($) {
-  let warningText = "";
-  $("table, p, span").each((_, el) => {
-    const text = $(el).text();
-    if (text.includes("Important :") && !warningText) {
-      warningText = cleanText(text);
-    }
-  });
-  return warningText;
-}
-
-/**
- * Parcourt le DOM pour extraire séquentiellement les blocs de texte et les galeries d'images
- */
-function extractBodyElements($, locationTitle, warningText) {
+function extractContentSequentially($, locationTitle, titleBannerImg) {
   const bodyElements = [];
+  let currentGallery = [];
 
+  function flushGallery() {
+    if (currentGallery.length > 0) {
+      bodyElements.push({ type: "gallery", images: [...currentGallery] });
+      currentGallery = [];
+    }
+  }
+
+  // Parcours des conteneurs de premier niveau (tables, divs, p isolés)
   $("body")
-    .find("table, p")
+    .find("table, p, div")
     .each((_, el) => {
       const $el = $(el);
 
-      // Ignorer l'en-tête déjà traité et les éléments du footer
-      if ($el.find('img[src*="contact.gif"], img[src*="lien"]').length > 0)
-        return;
-      if ($el.text().includes("Important :") && warningText) return;
-
+      // Si l'élément contient uniquement ou principalement des images (hors boutons footer/header)
       const imgs = $el.find("img");
-      const text = cleanText($el.text());
 
-      // CAS 1 : Bloc d'images
       if (imgs.length > 0) {
-        const imageList = [];
-        imgs.each((_, imgEl) => {
-          const src = $(imgEl).attr("src");
-          const alt = $(imgEl).attr("alt") || locationTitle;
-          const parentLink = $(imgEl).parent("a").attr("href");
+        let hasGalleryImg = false;
 
-          // Ne pas inclure la bannière GIF ou les boutons de liens
-          if (src && !src.endsWith(".gif") && !src.includes("contact")) {
-            imageList.push({ src, alt, link: parentLink || null });
+        imgs.each((_, imgEl) => {
+          const $img = $(imgEl);
+          const src = $img.attr("src") || $img.attr("SRC");
+          if (!src) return;
+
+          const srcLower = src.toLowerCase();
+          const isBanner = titleBannerImg && src === titleBannerImg;
+          const isSystem =
+            srcLower.includes("contact") ||
+            srcLower.includes("lien") ||
+            srcLower.includes("favicon") ||
+            srcLower.endsWith(".gif");
+
+          // Si c'est une image de la galerie de photos
+          if (!isBanner && !isSystem) {
+            // Remplir alt s'il est vide
+            const altText = cleanText($img.attr("alt")) || locationTitle;
+            const parentLink = $img.parent("a").attr("href");
+
+            if (!currentGallery.some((item) => item.src === src)) {
+              currentGallery.push({
+                src,
+                alt: altText,
+                link: parentLink || null,
+              });
+              hasGalleryImg = true;
+            }
           }
         });
 
-        if (imageList.length > 0) {
-          bodyElements.push({ type: "gallery", images: imageList });
-        }
+        if (hasGalleryImg) return;
       }
-      // CAS 2 : Bloc de texte narratif
-      else if (text.length > 3) {
-        const isCentered =
-          $el.find('[align="center"]').length > 0 ||
-          $el.attr("align") === "center";
 
-        bodyElements.push({
-          type: "text",
-          content: text,
-          centered: isCentered,
-        });
+      // Si c'est un bloc contenant du texte
+      const text = cleanText($el.text());
+
+      // On filtre les phrases d'avertissement déjà incluses dans le header ou bruits de structure
+      if (
+        text.length > 5 &&
+        !text.includes("Important :") &&
+        !text.includes("Glauque Land")
+      ) {
+        // Ignorer si ce paragraphe est le conteneur parent d'un sous-paragraphe qu'on traitera après
+        if ($el.find("p").length > 0 && el.name !== "p") return;
+
+        flushGallery();
+
+        // Éviter d'ajouter deux fois le même paragraphe de texte
+        const isDuplicate = bodyElements.some(
+          (b) => b.type === "text" && b.content === text
+        );
+
+        if (!isDuplicate) {
+          bodyElements.push({ type: "text", content: text });
+        }
       }
     });
 
+  flushGallery();
   return bodyElements;
 }
 
 /**
- * Extraite la navigation secondaire du footer (liens vers lieux associés et bouton de contact)
+ * 3. Extrait les liens connexes du footer
  */
 function extractFooterData($) {
   const relatedLinks = [];
@@ -119,14 +145,12 @@ function extractFooterData($) {
     const img = $a.find("img");
 
     if (img.length > 0 && href) {
-      const imgSrc = img.attr("src");
-
-      // Utilisation du chaînage optionnel (?.) pour éviter toute erreur si imgSrc est undefined
-      if (imgSrc?.includes("lien")) {
+      const imgSrc = img.attr("src") || img.attr("SRC");
+      if (imgSrc?.toLowerCase().includes("lien")) {
         relatedLinks.push({
           href,
           src: imgSrc,
-          alt: img.attr("alt") || "Visiter le lieu",
+          alt: cleanText(img.attr("alt")) || "Visiter le lieu",
         });
       }
     }
@@ -134,55 +158,39 @@ function extractFooterData($) {
 
   return {
     relatedLinks,
-    contactHref:
-      $('a[href*="contact"]').attr("href") || "../contact/contact.htm",
-    contactImgSrc:
-      $('a[href*="contact"] img').attr("src") || "../contact/contact.gif",
+    contactHref: $('a[href*="contact"]').attr("href") || "../contact/",
+    contactImgSrc: $('a[href*="contact"] img').attr("src") || "../contact/contact.gif",
   };
 }
 
 /**
- * Assemble et génère le code HTML final sémantique et réorganisé
+ * 4. Génération du HTML moderne et propre
  */
-function generateHtmlTemplate(
-  meta,
-  titleBannerImg,
-  warningText,
-  bodyElements,
-  footerData,
-) {
-  // Génération dynamique des sections du corps de page (<section>)
-  const sectionsHtml = bodyElements
+function buildModernHtml(meta, titleBannerImg, bodyElements, footerData) {
+  const sections = bodyElements
     .map((item) => {
       if (item.type === "text") {
-        const centerClass = item.centered ? " text-center" : "";
-        return `    <section class="text-block${centerClass}">\n      <p>${item.content}</p>\n    </section>`;
+        return `    <section class="text-block">\n      <p>${item.content}</p>\n    </section>`;
       }
-
       if (item.type === "gallery") {
-        const imagesHtml = item.images
+        const imgs = item.images
           .map((img) =>
             img.link
-              ? `      <a href="${img.link}"><img src="${img.src}" alt="${img.alt}"></a>`
-              : `      <img src="${img.src}" alt="${img.alt}">`,
+              ? `      <a href="${img.link}" target="_blank" rel="noopener"><img src="${img.src}" alt="${img.alt}"></a>`
+              : `      <img src="${img.src}" alt="${img.alt}">`
           )
           .join("\n");
-
-        return `    <section class="photo-gallery">\n${imagesHtml}\n    </section>`;
+        return `    <section class="photo-gallery">\n${imgs}\n    </section>`;
       }
       return "";
     })
     .join("\n\n");
 
-  // Génération dynamique de la navigation footer
-  const relatedNavHtml =
+  const relatedNav =
     footerData.relatedLinks.length > 0
       ? `\n      <nav class="related-links" aria-label="Visites associées">\n` +
         footerData.relatedLinks
-          .map(
-            (link) =>
-              `        <a href="${link.href}"><img src="${link.src}" alt="${link.alt}"></a>`,
-          )
+          .map((l) => `        <a href="${l.href}"><img src="${l.src}" alt="${l.alt}"></a>`)
           .join("\n") +
         `\n      </nav>`
       : "";
@@ -207,7 +215,7 @@ function generateHtmlTemplate(
   <meta property="og:url" content="${meta.ogUrl}">
   <meta property="og:image" content="${meta.ogImage}">
 
-  <link rel="SHORTCUT ICON" href="http://www.glauqueland.com/favicon.ico">
+  <link rel="shortcut icon" href="../favicon.ico">
 
   <link rel="stylesheet" href="../global.css">
   <link rel="stylesheet" href="../article.css">
@@ -219,12 +227,14 @@ function generateHtmlTemplate(
     <header class="album-header">
       <h1 class="visually-hidden">${meta.locationTitle}</h1>
       ${titleBannerImg ? `<img src="${titleBannerImg}" alt="${meta.locationTitle}" class="title-banner-img">` : ""}
-      ${warningText ? `<div class="warning-box">\n        <p>${warningText}</p>\n      </div>` : ""}
+      <div class="warning-box">
+        <p><strong>Important :</strong> Pour des raisons de confidentialité, de conservation, de sécurité (etc) je ne donnerai pas la localisation de cet endroit. Merci de votre compréhension.</p>
+      </div>
     </header>
 
-${sectionsHtml}
+${sections}
 
-    <footer class="album-footer">${relatedNavHtml}
+    <footer class="album-footer">${relatedNav}
       <div class="contact-link">
         <a href="${footerData.contactHref}">
           <img src="${footerData.contactImgSrc}" alt="Me contacter par mail">
@@ -239,66 +249,73 @@ ${sectionsHtml}
 }
 
 /**
- * Traite un fichier HTML d'origine et génère la version restructurée
+ * Nettoyage des sauvegardes oldindex
  */
-async function processFile(filePath) {
-  const relativePath = path.relative(INPUT_DIR, filePath);
-
-  // Ignorer les fichiers de la racine (index.html, index-2.html) et le dossier de sortie dist/
-  if (!relativePath.includes(path.sep) || relativePath.startsWith("dist")) {
-    return;
+async function removeOldIndexFiles(dirPath) {
+  const oldFiles = await glob(["oldindex.*", "OLDINDEX.*"], {
+    cwd: dirPath,
+    absolute: true,
+  });
+  for (const f of oldFiles) {
+    await fs.remove(f);
   }
-
-  const htmlContent = await fs.readFile(filePath, "utf-8");
-  const $ = cheerio.load(htmlContent, { decodeEntities: false });
-
-  // 1. Extraction modulaire des données de la page
-  const meta = extractMetadata($);
-  const warningText = extractWarningText($);
-  const titleBannerImg = $('img[src$=".gif"]').first().attr("src") || "";
-  const bodyElements = extractBodyElements($, meta.locationTitle, warningText);
-  const footerData = extractFooterData($);
-
-  // 2. Génération du HTML nettoyé
-  const finalHtml = generateHtmlTemplate(
-    meta,
-    titleBannerImg,
-    warningText,
-    bodyElements,
-    footerData,
-  );
-
-  // 3. Écriture du fichier transformé dans le dossier dist/
-  const outputPath = path.join(OUTPUT_DIR, relativePath);
-  await fs.ensureDir(path.dirname(outputPath));
-  await fs.writeFile(outputPath, finalHtml, "utf-8");
-
-  console.log(`✅ Transformé : ${relativePath}`);
 }
 
 /**
- * Fonction principale de lancement
+ * Traitement d'un fichier
  */
+async function processFile(filePath) {
+  const relativePath = path.relative(INPUT_DIR, filePath);
+  if (!relativePath.includes(path.sep)) return;
+
+  const dirPath = path.dirname(filePath);
+
+  // 1. Supprimer oldindex s'ils existent
+  await removeOldIndexFiles(dirPath);
+
+  // 2. Lire le fichier d'origine
+  const rawHtml = await readHtmlFile(filePath);
+  const $ = cheerio.load(rawHtml, { decodeEntities: false });
+
+  // 3. Extraire les éléments
+  const meta = extractMetadata($);
+  const titleBannerImg = $('img[src$=".gif"], img[src$=".GIF"]').first().attr("src") || "";
+  const bodyElements = extractContentSequentially($, meta.locationTitle, titleBannerImg);
+  const footerData = extractFooterData($);
+
+  // 4. Construire le HTML moderne
+  const modernHtml = buildModernHtml(meta, titleBannerImg, bodyElements, footerData);
+
+  // 5. Sauvegarder sous format index.html
+  const targetFilePath = path.join(dirPath, "index.html");
+  await fs.writeFile(targetFilePath, modernHtml, "utf-8");
+
+  // Si l'ancien fichier était un .htm ou s'appelait différemment d'index.html, on le nettoie
+  if (filePath !== targetFilePath) {
+    await fs.remove(filePath);
+    console.log(`✅ Converti : ${relativePath} ➔ ${path.relative(INPUT_DIR, targetFilePath)}`);
+  } else {
+    console.log(`✅ Mis à jour sur place : ${relativePath}`);
+  }
+}
+
 async function run() {
   try {
-    console.log("🚀 Début de la conversion des fichiers HTML...");
+    console.log("🚀 Conversion propre en cours à partir des fichiers originaux...");
 
-    // Recherche récursive de tous les fichiers HTML/HTM en ignorant node_modules et dist
     const files = await glob("**/*.{html,htm,HTML,HTM}", {
       cwd: INPUT_DIR,
       absolute: true,
-      ignore: ["node_modules/**", "dist/**"],
+      ignore: ["node_modules/**", "**/oldindex.*", "index.html", "map.html"],
     });
 
     for (const file of files) {
       await processFile(file);
     }
 
-    console.log(
-      "\n🎉 Conversion terminée avec succès ! Les fichiers nettoyés sont dans le dossier /dist.",
-    );
-  } catch (error) {
-    console.error("❌ Erreur pendant la conversion :", error);
+    console.log("\n🎉 Opération terminée avec succès !");
+  } catch (err) {
+    console.error("❌ Erreur :", err);
   }
 }
 
